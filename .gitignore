@@ -1,0 +1,17 @@
+venv/
+.env
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+data/
+test_data/
+
+*.crc
+._SUCCESS*
+.part*.crc
+checkpoint/
+
+.vscode/
+.idea/
