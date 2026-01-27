@@ -1,66 +1,61 @@
 import requests
 import sys
+import json
+import os
+import shutil
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructType, StructField, StringType
 
 def get_spark_session():
-    """Creates or retrieves a Spark session."""
     return SparkSession.builder \
         .appName("BreweryIngestionBronze") \
         .getOrCreate()
 
 def ingest_api_to_bronze(base_url, storage_path):
-    """
-    Fetches data from Open Brewery DB API and persists it in JSON format 
-    within the Bronze Layer of the data lake.
-    """
     spark = get_spark_session()
     
-    ingestion_schema = StructType([
-        StructField("id", StringType(), True),
-        StructField("name", StringType(), True),
-        StructField("brewery_type", StringType(), True),
-        StructField("address_1", StringType(), True),
-        StructField("address_2", StringType(), True),
-        StructField("address_3", StringType(), True),
-        StructField("city", StringType(), True),
-        StructField("state_province", StringType(), True),
-        StructField("postal_code", StringType(), True),
-        StructField("country", StringType(), True),
-        StructField("longitude", StringType(), True),
-        StructField("latitude", StringType(), True),
-        StructField("phone", StringType(), True),
-        StructField("website_url", StringType(), True),
-        StructField("state", StringType(), True),
-        StructField("street", StringType(), True)
-    ])
+    staging_dir = "data/staging/breweries"
+    os.makedirs(staging_dir, exist_ok=True)
+    
+    staging_file = os.path.join(staging_dir, "raw_data.jsonl")
+    
+    if os.path.exists(staging_file):
+        os.remove(staging_file)
 
-    all_data = []
     page = 1
-    per_page = 200 # as per API documentation limits
+    per_page = 200
+    total_records = 0
     
     print(f"[{datetime.now()}] Starting ingestion process...")
 
     try:
-        while True:
-            response = requests.get(f"{base_url}?page={page}&per_page={per_page}", timeout=15)
-            response.raise_for_status()
-            
-            data = response.json()
-            if not data:
-                break
-            
-            all_data.extend(data)
-            print(f"Page {page} successfully fetched. Records found: {len(data)}")
-            page += 1
+        with open(staging_file, "a", encoding="utf-8") as f:
+            while True:
+                response = requests.get(f"{base_url}?page={page}&per_page={per_page}", timeout=15)
+                response.raise_for_status()
+                
+                data = response.json()
+                if not data:
+                    break
+                
+                for record in data:
+                    f.write(json.dumps(record) + "\n")
+                
+                count = len(data)
+                total_records += count
+                print(f"Page {page} fetched and buffered. (+{count} records)")
+                page += 1
 
-        if not all_data:
-            print("No data retrieved from API.")
+        if total_records == 0:
+            print("No data retrieved.")
             return
 
-        bronze_data = spark.createDataFrame(all_data, schema=ingestion_schema)
+        print(f"[{datetime.now()}] Reading from buffer into Spark...")
+        
+        bronze_data = spark.read \
+            .option("primitivesAsString", "true") \
+            .json(staging_file)
 
         bronze_data = bronze_data.withColumn("ingestion_timestamp", F.current_timestamp())
 
@@ -68,19 +63,16 @@ def ingest_api_to_bronze(base_url, storage_path):
             .mode("overwrite") \
             .json(storage_path)
         
-        print(f"[{datetime.now()}] Success! Data persisted to {storage_path}")
-        print(f"[{datetime.now()}] Bronze layer populated with {bronze_data.count()} records.")
+        print(f"[{datetime.now()}] Success! {total_records} records persisted to {storage_path}")
 
     except Exception as e:
-        print(f"[{datetime.now()}] Error during ingestion: {str(e)}")
+        print(f"[{datetime.now()}] Error: {str(e)}")
         raise e
+    finally:
+        if os.path.exists(staging_dir):
+            shutil.rmtree(staging_dir)
 
 if __name__ == "__main__":
-    # Basic Configuration
     API_URL = "https://api.openbrewerydb.org/v1/breweries"
     OUTPUT_PATH = "data/bronze/breweries"
-
-    try:
-        ingest_api_to_bronze(API_URL, OUTPUT_PATH)
-    except Exception:
-        sys.exit(1)
+    ingest_api_to_bronze(API_URL, OUTPUT_PATH)
