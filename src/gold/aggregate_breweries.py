@@ -15,22 +15,25 @@ def get_spark_session():
 
 def transform_silver_to_gold(input_path, output_path):
     spark = get_spark_session()
-    sys.stdout.write(f"[{datetime.now()}] Aggregating brewery data by type and location for Gold layer...\n")
+    sys.stdout.write(f"[{datetime.now()}] Aggregating brewery data for Gold layer...\n")
     
     try:
         silver_data = spark.read.format("delta").load(input_path)
         
-        gold_data = silver_data.groupBy(F.initcap("country").alias("country"), "brewery_type") \
-                               .agg(F.count("id").alias("brewery_count")) \
-                               .orderBy("country", F.desc("brewery_count"))
+        gold_data = silver_data.groupBy(
+            F.initcap("country").alias("country"), 
+            "brewery_type"
+        ).agg(F.count("id").alias("brewery_count")) \
+         .orderBy("country", F.desc("brewery_count"))
         
-        gold_data.write \
+        gold_data.coalesce(1).write \
             .format("delta") \
             .mode("overwrite") \
+            .option("overwriteSchema", "true") \
             .save(output_path)
         
         total_rows = gold_data.count()
-        sys.stdout.write(f"[{datetime.now()}] Gold layer finalized. {total_rows} aggregated records successfully persisted to Delta Lake.\n")
+        sys.stdout.write(f"[{datetime.now()}] Gold layer finalized. {total_rows} aggregated records persisted.\n")
 
     except Exception as e:
         sys.stdout.write(f"[{datetime.now()}] ERROR: {str(e)}\n")
