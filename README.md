@@ -28,9 +28,12 @@ Desenhei a solução para ser escalável e resiliente, utilizando as seguintes c
 Caso não possua o Docker instalado, utilize os comandos abaixo (exemplo para distribuições baseadas em Debian/Ubuntu):
 
 ```bash
-# Atualizar repositórios e instalar dependências
 sudo apt-get update
-sudo apt-get install ca-certificates curl gnupg
+sudo apt-get install docker.io docker-compose-v2 -y
+
+# Garantir que o serviço está rodando
+sudo systemctl start docker
+sudo systemctl enable docker
 ```
 # Adicionar chave oficial do Docker e instalar Engine + Compose
 sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin\
