@@ -9,16 +9,12 @@ import sys
 BASE_PATH = "/opt/airflow/data"
 BRONZE_FILE = f"{BASE_PATH}/bronze/breweries_raw.json"
 SILVER_OUTPUT = f"{BASE_PATH}/silver/breweries_delta"
+GOLD_PATH = f"{BASE_PATH}/gold/brewery_metrics"
 
 sys.path.append('/opt/airflow')
-from src.silver.refine_breweries import transform_bronze_to_silver
 
-default_args = {
-    'owner': 'Esther',
-    'depends_on_past': False,
-    'retries': 3,
-    'retry_delay': timedelta(minutes=1),
-}
+from src.silver.refine_breweries import transform_bronze_to_silver
+from src.gold.aggregate_breweries import transform_silver_to_gold
 
 default_args = {
     'owner': 'Esther',
@@ -45,6 +41,13 @@ def run_silver_transformation():
     """Call the Spark/Delta transformation logic stored in the src/ ."""
     transform_bronze_to_silver(BRONZE_FILE, SILVER_OUTPUT)
 
+def run_gold_transformation():
+    """
+    Triggers the Spark transformation to aggregate Silver data 
+    into business metrics for the Gold layer.
+    """
+    transform_silver_to_gold(SILVER_OUTPUT, GOLD_PATH)
+
 with DAG(
     dag_id='brewery_medallion_pipeline',
     default_args=default_args,
@@ -52,7 +55,7 @@ with DAG(
     schedule_interval=None,
     start_date=datetime(2026, 1, 28),
     catchup=False,
-    tags=['pyspark', 'medallion'],
+    tags=['pyspark', 'medallion', 'delta', 'gold'],
 ) as dag:
 
     extract_task = PythonOperator(
@@ -65,4 +68,9 @@ with DAG(
         python_callable=run_silver_transformation
     )
 
-    extract_task >> transform_silver_task
+    transform_gold_task = PythonOperator(
+        task_id='transform_gold_task',
+        python_callable=run_gold_transformation
+    )
+
+    extract_task >> transform_silver_task >> transform_gold_task
