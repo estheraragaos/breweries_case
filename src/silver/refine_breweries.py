@@ -22,7 +22,7 @@ def transform_bronze_to_silver(input_path, output_path):
     sys.stdout.write(f"[{datetime.now()}] Applying data cleansing and normalization for Silver layer...\n")
 
     try:
-        bronze_data = spark.read.json(input_path)
+        bronze_data = spark.read.option("multiline", "true").json(input_path)
 
         silver_data = bronze_data \
             .withColumn("id", F.trim(F.col("id"))) \
@@ -61,10 +61,10 @@ def transform_bronze_to_silver(input_path, output_path):
 
 if __name__ == "__main__":
     import os
+   
+    base_path = "/opt/airflow/data" 
     
-    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    
-    INPUT = os.path.join(base_path, "data/bronze/breweries")
-    OUTPUT = os.path.join(base_path, "data/silver/breweries")
+    INPUT = os.path.join(base_path, "bronze/breweries_raw.json")
+    OUTPUT = os.path.join(base_path, "silver/breweries_delta")
     
     transform_bronze_to_silver(INPUT, OUTPUT)
